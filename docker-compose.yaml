@@ -1,0 +1,32 @@
+version: "3"
+services:
+  app:
+    image: 644435390668.dkr.ecr.us-west-2.amazonaws.com/rodney-ecr-ted-search:latest
+    volumes:
+      - static_files:/app
+      - static_files_items:/app/src/main/resources/static
+    networks:
+      - terranet
+
+  nginx_app:
+    image: nginx
+    volumes:
+      - static_files_items:/static
+      - ./config-app/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./logs:/var/log/nginx/
+    ports:
+      - 8083:80
+    depends_on:
+      - app
+      # app:
+        # condition: service_healthy
+    networks:
+      - terranet
+
+volumes:
+  static_files_items:
+  static_files:
+
+networks:
+  terranet:
+  

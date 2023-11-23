@@ -1,0 +1,106 @@
+
+pipeline{
+    agent any
+    options {
+        timestamps()
+        timeout(time:15, unit:'MINUTES')
+        gitLabConnection('gitlab_api_connection')
+    }
+    triggers{
+        gitlab(triggerOnPush: true, triggerOnMergeRequest: true, branchFilterType: 'All')
+    }
+    tools{
+        maven "Maven_3.6.2"
+        jdk "JAVA_8"
+    }
+    stages{
+        stage ('checkout'){
+            steps{
+                checkout scm
+            }
+        }
+        stage('build & unit tests'){
+            steps{
+                sh"""
+                    echo "building stage has started"
+
+                    ls
+
+                    cd ted-search-app
+
+                    ls
+
+                    mvn package dockerfile:build
+
+
+                """
+            }
+        }
+        stage('e2e_tests'){
+            when{
+                changelog '.*#test.*'
+            }
+            steps{
+                sh"""
+                    echo "building testing stage has started"
+                     ls
+                    chmod +x  e2e-test.sh
+                    docker run -it -dp 8087:9191  --name embed-ted-container  embedash-ted-search:1.0
+
+
+                    sleep 4
+
+
+                    ./e2e-test.sh
+
+                    sleep 4
+
+                    docker rm -f embed-ted-container
+
+                """
+            }
+        }
+        stage('deploy'){
+            steps{
+                sh"""
+                    echo "deploying stage has started"
+                    docker image ls 
+
+                    aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 644435390668.dkr.ecr.us-west-2.amazonaws.com
+                    
+                    docker tag embedash-ted-search:1.0 644435390668.dkr.ecr.us-west-2.amazonaws.com/rodney-ecr-ted-search:latest
+
+                    docker push 644435390668.dkr.ecr.us-west-2.amazonaws.com/rodney-ecr-ted-search:latest
+
+                    
+                """
+            }
+        }
+
+    }
+    post {
+        always {
+            // Cleaning workspace
+            cleanWs()
+            emailext subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',
+                body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+                Check console output at $BUILD_URL to view the results.''',
+                from:'jenkins',
+                to: emailextrecipients([culprits(), upstreamDevelopers(), developers()])
+        }
+        success {
+            sh """
+                echo success
+            """
+            updateGitlabCommitStatus name: 'build', state: 'success'
+        }
+        failure {
+            sh """
+                echo failure
+            """
+            updateGitlabCommitStatus name: 'build', state: 'failed'
+        }
+    }
+
+}
+
