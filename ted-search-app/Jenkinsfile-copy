@@ -1,0 +1,73 @@
+
+pipeline{
+    agent any
+    options {
+        timestamps()
+        timeout(time:15, unit:'MINUTES')
+        gitLabConnection('gitlab_api_connection')
+    }
+    triggers{
+        gitlab(triggerOnPush: true, triggerOnMergeRequest: true, branchFilterType: 'All')
+    }
+    tools{
+        maven "Maven_3.6.2"
+        jdk "JAVA_8"
+    }
+    stages{
+        stage ('checkout'){
+            steps{
+                checkout scm
+            }
+        }
+        stage('build'){
+            steps{
+                sh"""
+                    echo "building stage has started"
+                    // docker build -t rodney-ecr-ted-search .
+                    
+                    mvn clean package dockerfile:build
+
+                """
+            }
+        }
+        stage('deploy'){
+            steps{
+                sh"""
+                    echo "deploying stage has started"
+                    aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 644435390668.dkr.ecr.us-east-1.amazonaws.com
+                    
+                    docker tag rodney-ecr-ted-search:latest 644435390668.dkr.ecr.us-east-1.amazonaws.com/rodney-ecr-ted-search:latest
+                    docker push 644435390668.dkr.ecr.us-east-1.amazonaws.com/rodney-ecr-ted-search:latest
+
+                    
+                """
+            }
+        }
+
+    }
+    post {
+        always {
+            // Cleaning workspace
+            cleanWs()
+            emailext subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',
+                body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+                Check console output at $BUILD_URL to view the results.''',
+                from:'jenkins',
+                to: emailextrecipients([culprits(), upstreamDevelopers(), developers()])
+        }
+        success {
+            sh """
+                echo success
+            """
+            updateGitlabCommitStatus name: 'build', state: 'success'
+        }
+        failure {
+            sh """
+                echo failure
+            """
+            updateGitlabCommitStatus name: 'build', state: 'failed'
+        }
+    }
+
+}
+
